@@ -1,0 +1,10 @@
+# Processing-Microarray-Data
+This package is dependent upon using the LUMI Bioconductor package to reprocess Illumina Microarray files.  
+It also integrates Affymetrix files, which were processed seperately.  I pulled the files from GEO and re normalized 
+them manually.  You could also perform this using your own Illumina files. I used the in Silico DB package to merge
+files.  More information about this program can be found at https://insilicodb.com/.  It is improtant to note that 
+this package requires some similiarity to merge array files.  If you are working with arrays from the same platform
+the probe id will not need to be changed. I converted all of the probe ids to genes.  I removed all probes that 
+did not match to genes, and collapsed redudant probes by the gene mean.  This leads to loss of data in arrays, so should
+only be performed as necessary.
+
