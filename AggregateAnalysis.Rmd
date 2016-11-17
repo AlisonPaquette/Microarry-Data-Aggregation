@@ -1,0 +1,238 @@
+---
+title: "Aggregate Data Set"
+author: "Alison Paquette"
+date: "11/7/2016"
+output: html_document
+---
+```{r}
+Covar<-read.csv("~/Documents/Project 1. Preterm Birth/November2016DataProcessing/Covar.csv")
+rownames(Covar)<-as.character(Covar$SampleIdentifier)
+
+#We have elected to exclude indivdiuals with Preeclampsia
+NoPE<-subset(Covar,!PETstatus=="Y"|is.na(PETstatus))
+
+Covar2<-subset(NoPE,!StudyIdentifier=="GSE44711") #Need to dop this one study because it only  has preterm infants
+Covar2$StudyIdentifier<-droplevels(Covar2$StudyIdentifier)
+table(Covar2$StudyIdentifier)
+
+Preterm<-subset(Covar2,PretermGroup=="PT")
+Term<-subset(Covar2,PretermGroup=="T")
+rbind(table(Preterm$StudyIdentifier),table(Term$StudyIdentifier))
+
+```
+
+#load individually processed datasets
+```{r}
+load("/Users/alisonpaquette/Documents/Project 1. Preterm Birth/November2016DataProcessing/CompleteDatasets/GSE18809on1172016.RData")
+load("/Users/alisonpaquette/Documents/Project 1. Preterm Birth/November2016DataProcessing/CompleteDatasets/GSE25906on1172016.RData")
+load("/Users/alisonpaquette/Documents/Project 1. Preterm Birth/November2016DataProcessing/CompleteDatasets/GSE54618on1172016.RData")
+load("/Users/alisonpaquette/Documents/Project 1. Preterm Birth/November2016DataProcessing/CompleteDatasets/GSE73374on1172016.RData")
+load("/Users/alisonpaquette/Documents/Project 1. Preterm Birth/November2016DataProcessing/CompleteDatasets/GSE75010on1172016.RData")
+load("/Users/alisonpaquette/Documents/Project 1. Preterm Birth/November2016DataProcessing/CompleteDatasets/GSE73685on1172016.RData")
+load("/Users/alisonpaquette/Documents/Project 1. Preterm Birth/November2016DataProcessing/CompleteDatasets/BARNASEQon1172016.RData")
+
+```
+
+#Merge Data Together
+```{r}
+DATA<-merge(GSE25906,GSE54618,by='row.names',all=F)
+rownames(DATA)<-DATA[,1]
+DATA<-DATA[,-1]
+dim(DATA)
+
+DATA<-merge(DATA,GSE73374,by='row.names',all=F)
+rownames(DATA)<-DATA[,1]
+DATA<-DATA[,-1]
+dim(DATA)
+DATA<-merge(DATA,GSE18809,by='row.names',all=F)
+rownames(DATA)<-DATA[,1]
+DATA<-DATA[,-1]
+dim(DATA)
+
+DATA<-merge(DATA,GSE75010,by='row.names',all=F)
+rownames(DATA)<-DATA[,1]
+DATA<-DATA[,-1]
+dim(DATA)
+
+DATA<-merge(DATA,GSE73685,by='row.names',all=F)
+rownames(DATA)<-DATA[,1]
+DATA<-DATA[,-1]
+dim(DATA)
+
+DATA<-merge(DATA,BARNASEQ,by='row.names',all=F)
+rownames(DATA)<-DATA[,1]
+DATA<-DATA[,-1]
+dim(DATA)
+
+RawData<-DATA
+
+table(is.na(RawData))
+
+
+#GOI<-c("1082","1442","5266","5069","3623","1392")
+
+```
+
+Perform ComBat Adjustment
+```{r}
+#First, Organize it so colnames of Covar are equal to the rownames of Data
+
+Covar<- Covar2[colnames(RawData), ]
+table(colnames(RawData) == rownames(Covar))
+
+#Batch: This is the variable you need to adjust for
+batch<-as.factor(Covar$StudyIdentifier)
+table(batch)
+modcombat = model.matrix(~as.factor(PretermGroup), data=Covar)#What we are protecting
+modcombat=as.data.frame(modcombat[,2])
+#modcombat = model.matrix(~1, data=Covar)
+table(modcombat)
+DATA_ComBat= ComBat(dat=DATA, batch=batch, mod=modcombat, par.prior=TRUE, prior.plots=FALSE)
+```
+
+#Data Quality Control: View
+```{r}
+old.par <- par(mar = c(3,3,3,3))
+par(.pardefault)
+par(mfrow=c(2,1))#,mai= 1.02 0.82 0.82 0.42)
+
+palette(rainbow(7))
+boxplot(RawData,which="all",main="No Correction",col=batch)
+boxplot(DATA_ComBat,which="all",main="ComBat Adjustment",col=batch)
+
+```
+
+PCA: Determine proportion of variance and find assocations with Study Characteristics of interest
+```{r}
+PCobj =prcomp(t(RawData), scale=TRUE)
+PCs = PCobj$x
+PC.NBC =as.data.frame(PCs[,1:4])
+colnames(PC.NBC)<-c("PC1.nbc","PC2.nbc","PC3.nbc","PC4.nbc")
+PC.NBC$SampleIdentifier<-rownames(PC.NBC)
+
+propvar.NBC = summary(PCobj)$importance["Proportion of Variance", 1:4]
+
+
+x<-DATA_ComBat
+PCobj =prcomp(t(x), scale=TRUE)
+PCs = PCobj$x
+PC.BC =as.data.frame(PCs[,1:4])
+colnames(PC.BC)<-c("PC1.bc","PC2.bc","PC3.bc","PC4.bc")
+PC.BC$SampleIdentifier<-rownames(PC.BC)
+
+propvar.BC = summary(PCobj)$importance["Proportion of Variance", 1:4]
+
+merge1<-merge(PC.NBC,PC.BC,by ="SampleIdentifier",all=T)
+DATA<-merge(merge1,Covar,by="SampleIdentifier",all=F)
+
+
+#Assocation with batch
+2
+
+PCS<-DATA[,c(2:9)]
+EVAL<-as.data.frame(matrix(NA,nrow=length(RawData[,c(2:9)]),ncol=2))
+
+for (i in 1:8){
+AOV<-aov(PCS[,i]~StudyIdentifier,data=DATA)
+EVAL[i,1] <-summary(AOV)[[1]][["Pr(>F)"]][1]
+
+AOV<-t.test(PCS[,i]~PretermGroup,data=DATA)
+EVAL[i,2] <-AOV$p.value
+
+}
+colnames(EVAL)<-c("StudyID","PretermGroup")
+rownames(EVAL)<-colnames(PCS)
+write.csv(EVAL,file="combatqcresults.csv")
+```
+
+
+```{r}
+par(mfrow=c(1,1))
+x<-rbind(propvar.NBC,propvar.BC)
+barplot(x,col=c("purple","azure4"),beside=T,xlab="Principal Components",ylab="% of Variation")
+```
+
+#Visualize PCA results
+```{r}
+P<-qplot(PC1.nbc, PC2.nbc, colour = StudyIdentifier,shape = PretermGroup,
+         data = DATA)
+P<-P+geom_point(size = 3)
+#P<-P+scale_x_continuous(limits = c(-100,200))
+#P<-P+scale_y_continuous(limits = c(-50,50))
+P + theme_bw()+theme(legend.position = "right")+theme(axis.text = element_text(size = 15))
+
+P<-qplot(PC1.bc, PC2.bc, colour = StudyIdentifier,shape = PretermGroup,
+         data = DATA)
+P<-P+geom_point(size = 3)
+#P<-P+scale_x_continuous(limits = c(-100,200))
+#P<-P+scale_y_continuous(limits = c(-50,50))
+P + theme_bw()+theme(legend.position = "right")+theme(axis.text = element_text(size = 15))
+
+```
+
+#Prepare Data for DIRAC
+```{r}
+x<-t(modcombat[,1])
+rownames(x)<-"PETSTATUS"
+colnames(x)<-rownames(modcombat)
+
+IDs<-getBM(filters="ensembl_gene_id",attributes= c("ensembl_gene_id","hgnc_symbol"),values=rownames(DIRAC.DATA), mart=ensembl)
+rownames(IDs)<-IDs$ensembl_gene_id
+IDs$hgnc_symbol[IDs$hgnc_symbol==""] <- NA
+IDs<-na.omit(IDs)
+DATA<-merge(IDs,DIRAC.DATA,by='row.names',all=F)
+rownames(DATA)<-DATA$hgnc_symbol
+DATA<-DATA[,-c(1:3)]
+DIRAC.DATA<-rbind(x,DATA)
+save(DIRAC.DATA,file="INPUTDATAFORDIRAC11152016.RData")
+```
+
+
+LIMMA
+```{r}
+design=model.matrix(~as.factor(Covar$PretermGroup))
+table(design[,2])
+
+dim(design) #Rows of Design must =
+dim(DATA_ComBat)   #Columns of Data Matrix!
+
+fit <- lmFit(DATA_ComBat, design=design)
+fit <- eBayes(fit) ##Probably shouldnt run this, as EBAYES  thinks it needs all genes
+#results<-toptable(fit,adjust.method = "BH",number=length(rownames(DATA)))
+
+results<-topTable(fit,number=length(rownames(DATA_ComBat)),adjust.method="BH")
+sig2<-subset(results,adj.P.Val<0.05)
+
+IDs<-getBM(filters="ensembl_gene_id",attributes= c("ensembl_gene_id","hgnc_symbol"),values=rownames(results), mart=ensembl)
+rownames(IDs)<-IDs$ensembl_gene_id
+
+
+AggregateResults<-merge(IDs,results,by='row.names',all=T)
+AggregateResults<-AggregateResults[,c(2,3,4,5,7,8)]
+save(AggregateResults,file="AggregateAnalysisResultsLIMMA.RData")
+
+sig<-subset(AggregateResults,adj.P.Val<0.05)
+table(sig$logFC>0)
+
+par(mfrow=c(1,1))
+plot(results$logFC, -log10(results$P.Value),
+    # xlim=c(-1, 1), ylim=c(0, 10), #Set limits
+     xlab="Coefficent", ylab="-log10 p-value",pch=16)
+points(sig2$logFC, -log10(sig2$P.Value),col="orange",pch=16)
+#Set axis labels
+abline(h=(-log10(3.529578e-06)),col="red",lwd=4)
+abline(h=(-log10(0.05)),col="black",lwd=2,lty=2)
+
+
+TOPGENES2<-topTable(fit,number=10,adjust.method="BH")
+GENES<-(IDs[rownames(TOPGENES2),])
+GENES<-GENES$hgnc_symbol
+DATA2<-DIRAC.DATA[rownames(TOPGENES2),]
+
+par(mfrow=c(2,5))#,mar = c(2,3,2,3))
+for (i in 1:length(GENES)){
+x<-t(DIRAC.DATA[1,])
+boxplot(as.numeric(DATA2[i,])~as.factor(x[,1]),col=c("azure3","green"),notch=F,main=GENES[i])
+}
+```
+
