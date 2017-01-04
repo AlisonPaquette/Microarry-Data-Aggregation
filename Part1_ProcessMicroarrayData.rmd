@@ -5,7 +5,7 @@ date: "11/14/2016"
 output: html_document
 ---
 
-#Part 0A: Load All packages used in this analysis
+#Part 0A: Load All packages & Functions used in this analysis
 ```{r}
 library(oligo) #For Affymetrix Data
 library(lumi) #For Illumina Data
@@ -75,7 +75,6 @@ CollapsedData<-CollapsedData[,-1]
 
 
 #Part OB: Load covariate data and identify what samples to use
-Note: This is analogous to Issue #1: Identify Suitable Microarray Datasets (Ramasamay et al, 2008)
 ```{r}
 Covar<-read.csv("~/Documents/Project 1. Preterm Birth/PaperPreprocessingJan/Preprocessing/1262016UpdatedCovar.csv")
 
@@ -97,10 +96,8 @@ rbind(table(Preterm$StudyIdentifier),table(Term$StudyIdentifier))
 
 ```
 
-#GSE73374
-**GSE73374: HuGene-2_0-st (Gene Version)**
-#Part 1: Load raw data files (downloaded from GEO here: )
-This is analogous to Issue 2: Extract Data from studies (Ramasamy et al, 2008)
+**Example 1: : HuGene-2_0-st (Gene Version)**
+#Part 1: Loading .CEL Files of interest
 ```{r}
 #Subset Files you want from Covariate
 X<-"GSE73374"
@@ -119,7 +116,6 @@ rawData <- read.celfiles(filenames)
 ```
 
 #Part 2: Preprocess/Prepare Datasets
-This is analgous to Issue 3: Prepare datasets from different platforms (Ramasamy et al, 2008)
 ```{r}
 NormData <- rma(rawData)#Note: The output of RMA using Oligo is already log2 normalized (unlike xps, previous packages, as described in https://www.bioconductor.org/packages/release/bioc/vignettes/oligo/inst/doc/oug.pdf)
 
@@ -130,7 +126,6 @@ NormData<-exprs(NormData)
 ```
 
 #Part 3: Convert Probes to Genes
-This is analogous to issue 4 (Annotate datasets)
 ```{r}
 IDs<-getBM(filters="affy_hugene_2_0_st_v1",attributes= c("affy_hugene_2_0_st_v1","ensembl_gene_id","hgnc_symbol"),values=row.names(NormData), mart=ensembl)
 
@@ -141,7 +136,6 @@ GSE73374<-CondenseProbes(ProbeData1)
 #save(GSE73374,file="~/Documents/Project 1. Preterm Birth/PaperPreprocessingJan/Preprocessing/GSE733374_12282016.RData")
 ```
 
-#GSE75010
 **GSE75010: HuGene-1_0-st (Gene Version)**
 #Part 1: Load raw data files (downloaded from GEO here: )
 This is analogous to Issue 2: Extract Data from studies (Ramasamy et al, 2008)
@@ -167,15 +161,17 @@ colnames(rawData)<-SampleID
 #Part 2: Preprocess/Prepare Datasets
 This is analgous to Issue 3: Prepare datasets from different platforms (Ramasamy et al, 2008)
 ```{r}
-NormData <- rma(rawData)#Note: Th
+NormData <- rma(rawData)
 
+#Quick QC of Data
 par(mfrow=c(2,1))
 boxplot(exprs(rawData),main=c(X,"Raw"))
 boxplot(exprs(NormData),main=c(X,"Normalized"))
+
+NormData<-exprs(NormData)
 ```
 
 ```{r}
-
 IDs<-getBM(filters="affy_hugene_1_0_st_v1",attributes= c("affy_hugene_1_0_st_v1","ensembl_gene_id","hgnc_symbol"),values=rownames(NormData), mart=ensembl)
 
 Probeset1<-RemoveDupProbes(IDs,exprs(NormData))
