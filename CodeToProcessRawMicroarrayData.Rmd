@@ -16,24 +16,82 @@ outersect <- function(x, y) {
   sort(c(setdiff(x, y),
          setdiff(y, x)))
 }
+
+RemoveDupProbes<-function(IDs, NormData){
+Report<-as.data.frame(matrix(NA,nrow = 4,ncol=1))
+rownames(Report)<-c("Initial Probes","Probes w/ no Genes","Duplicated Probes","Unique Probes")
+
+probeids=row.names(NormData)
+Report[1,1]<-length(probeids)
+
+ArrayProbes<-unique(IDs[,1])
+Report[2,1]<-(length(probeids)-length(ArrayProbes))
+  
+  #Isolate Duplicated Probes
+Duplicated<-subset(IDs,duplicated(IDs[,1])|duplicated(IDs[,1],fromLast=T)==T)
+  
+DupTable<-as.data.frame(table(Duplicated[,1]))
+rownames(DupTable)<-as.character(DupTable$Var1)
+  
+  #Create list of Data that is Duplicated and subset this Data
+Duplications<-rownames(DupTable)
+Report[3,1]<-length(Duplications)
+  
+#Isolate Unique Probes
+UniqueProbes<-outersect(ArrayProbes,Duplications)
+Unique<-subset(IDs,duplicated(IDs[,1])==F)
+rownames(Unique)<-as.character(Unique[,1])
+  
+if (dim(Unique)[1]!=length(ArrayProbes)){
+  stop("Number of Unique Probes Not Equal To Array Probes")
+}
+ 
+Unique<-(Unique[UniqueProbes,])
+rownames(Unique)<-Unique[,1]
+Report[4,1]<-length(rownames(Unique))
+
+print(Report)
+  #Create Dataset with these unique probes
+Unique.Data<-merge(Unique,(NormData),by='row.names',all=F)
+Unique.Data<-Unique.Data[,-1]
+if (dim(Unique)[1]+(dim(DupTable)[1])!=length(ArrayProbes)){
+  stop("Unique and Non Unique Probes do NOT equal Probe IDs")
+} 
+(Unique.Data)
+}
+
+CondenseProbes<-function(ProbeData1){
+
+rownames(ProbeData1)<-ProbeData1[,1]
+Ensembl_IDs<-list(as.character(ProbeData1[,2]))
+TempData<-ProbeData1[,-c(1:3)]
+CollapsedData<-aggregate(TempData,by=Ensembl_IDs,FUN=mean,na.rm=TRUE, na.action=NULL)
+rownames(CollapsedData)<-CollapsedData[,1]
+CollapsedData<-CollapsedData[,-1]
+  
+}
+
 ```
 
 
 #Part OB: Load covariate data and identify what samples to use
 Note: This is analogous to Issue #1: Identify Suitable Microarray Datasets (Ramasamay et al, 2008)
 ```{r}
-Covar<-read.csv("~/Documents/Project 1. Preterm Birth/November2016DataProcessing/Covar.csv")
+Covar<-read.csv("~/Documents/Project 1. Preterm Birth/PaperPreprocessingJan/Preprocessing/1262016UpdatedCovar.csv")
+
 rownames(Covar)<-as.character(Covar$SampleIdentifier)
 
 #We have elected to exclude indivdiuals with Preeclampsia
 NoPE<-subset(Covar,!PETstatus=="Y"|is.na(PETstatus))
+NoCA<-subset(NoPE,!CA.Diagnosis=="Yes"|is.na(CA.Diagnosis))
+NoInbetween<-subset(NoCA,!is.na(birth.type))
 
-Covar2<-subset(NoPE,!StudyIdentifier=="GSE44711") #Need to dop this one study because it only  has preterm infants
-Covar2$StudyIdentifier<-droplevels(Covar2$StudyIdentifier)
+Covar2<-subset(NoInbetween,!StudyIdentifier=="GSE44711") #Need to dop this one study because it only  has preterm infants
+Covar2$StudyIdentifier<-as.character(droplevels(Covar2$StudyIdentifier))
 table(Covar2$StudyIdentifier)
 
-Preterm<-subset(Covar2,PretermGroup=="PT")
-Term<-subset(Covar2,PretermGroup=="T")
+Preterm<-subset(Covar2,birth.type=="PRETERM")
+Term<-subset(Covar2,birth.type=="TERM")
 rbind(table(Preterm$StudyIdentifier),table(Term$StudyIdentifier))
 
 
@@ -65,62 +123,22 @@ This is analgous to Issue 3: Prepare datasets from different platforms (Ramasamy
 ```{r}
 NormData <- rma(rawData)#Note: The output of RMA using Oligo is already log2 normalized (unlike xps, previous packages, as described in https://www.bioconductor.org/packages/release/bioc/vignettes/oligo/inst/doc/oug.pdf)
 
+par(mfrow=c(2,1))
+boxplot(exprs(rawData),main=c(X,"Raw"))
+boxplot(exprs(NormData),main=c(X,"Normalized"))
+NormData<-exprs(NormData)
 ```
 
 #Part 3: Convert Probes to Genes
 This is analogous to issue 4 (Annotate datasets)
 ```{r}
+IDs<-getBM(filters="affy_hugene_2_0_st_v1",attributes= c("affy_hugene_2_0_st_v1","ensembl_gene_id","hgnc_symbol"),values=row.names(NormData), mart=ensembl)
 
-probeids=row.names(NormData)
-length(probeids)
+ProbeData1<-RemoveDupProbes(IDs,NormData)
 
-ensembl = useMart("ensembl",dataset="hsapiens_gene_ensembl")
+GSE73374<-CondenseProbes(ProbeData1)
 
-IDs<-getBM(filters="affy_hugene_2_0_st_v1",attributes= c("affy_hugene_2_0_st_v1","ensembl_gene_id","hgnc_symbol"),values=probeids, mart=ensembl)
-
-
-ArrayProbes<-unique(IDs$affy_hugene_2_0_st_v1)
-length(probeids)-length(ArrayProbes) #12717 probs were NOT on the aray
-
-#Isolate Duplicated Probes
-Duplicated<-subset(IDs,duplicated(IDs$affy_hugene_2_0_st_v1)|duplicated(IDs$affy_hugene_2_0_st_v1,fromLast=T)==T)
-
-#Lets check out what these duplicated Probes look like
-DupTable<-as.data.frame(table(Duplicated$affy_hugene_2_0_st_v1))
-hist(DupTable$Freq)
-summary(DupTable$Freq)
-rownames(DupTable)<-as.character(DupTable$Var1)
-
-#Create list of Data that is Duplicated and subset this Data
-Duplications<-rownames(DupTable)
-#Duplications.Data<-NormData[Duplications,]
-
-#Isolate Unique Probes
-UniqueProbes<-outersect(ArrayProbes,Duplications)
-
-Unique<-subset(IDs,duplicated(IDs$affy_hugene_2_0_st_v1)==F)
-rownames(Unique)<-as.character(Unique$affy_hugene_2_0_st_v1)
-dim(Unique)[1]==length(ArrayProbes)
-#Note: this additional step is because the first instance of a non unique probe is sitll there, as sown in the dimensions. we need to remove All those probes that are non unique
-Unique<-(Unique[UniqueProbes,])
-rownames(Unique)<-Unique$affy_hugene_2_0_st_v1
-
-#Create Dataset with these unique probes
-Unique.Data<-merge(Unique,exprs(NormData),by='row.names',all=F)
-Unique.Data<-Unique.Data[,-1]
-(dim(Unique)[1])+(dim(DupTable)[1])==length(ArrayProbes) #make sure non unique and Unique probes add up to probe ids
-
-Ensembl_IDs<-list(as.character(Unique.Data$ensembl_gene_id))
-
-TempData<-Unique.Data[,-c(1:3)]
-colnames(TempData)<-SampleID
-CollapsedData<-aggregate(TempData,by=Ensembl_IDs,FUN=mean,na.rm=TRUE, na.action=NULL)
-colnames(CollapsedData)
-rownames(CollapsedData)<-CollapsedData$Group.1
-
-GSE73374<-CollapsedData[,-1]
-
-save(GSE73374,file="GSE73374on1172016.RData")
+#save(GSE73374,file="~/Documents/Project 1. Preterm Birth/PaperPreprocessingJan/Preprocessing/GSE733374_12282016.RData")
 ```
 
 #GSE75010
@@ -142,6 +160,8 @@ filenames.tmp2<-filenames.tmp2[SampleID,]
 filenames<-filenames.tmp2[,6]
 
 rawData <- read.celfiles(filenames)
+
+colnames(rawData)<-SampleID
 ```
 
 #Part 2: Preprocess/Prepare Datasets
@@ -149,357 +169,18 @@ This is analgous to Issue 3: Prepare datasets from different platforms (Ramasamy
 ```{r}
 NormData <- rma(rawData)#Note: Th
 
-
-probeids=row.names(NormData)
-length(probeids)
-
-ensembl = useMart("ensembl",dataset="hsapiens_gene_ensembl")
-
-IDs<-getBM(filters="affy_hugene_1_0_st_v1",attributes= c("affy_hugene_1_0_st_v1","ensembl_gene_id","hgnc_symbol"),values=probeids, mart=ensembl)
-
-
+par(mfrow=c(2,1))
+boxplot(exprs(rawData),main=c(X,"Raw"))
+boxplot(exprs(NormData),main=c(X,"Normalized"))
 ```
 
-
-#Part 4: Resolve 1 Probe: Many Gene relationships 
-(A part of many: Many relationships, as described in Ramasamy et al, 2008).  We have elected to expand all probes
 ```{r}
 
-ArrayProbes<-unique(IDs$affy_hugene_1_0_st_v1)
-length(probeids)-length(ArrayProbes) #12717 probs were NOT on the aray
+IDs<-getBM(filters="affy_hugene_1_0_st_v1",attributes= c("affy_hugene_1_0_st_v1","ensembl_gene_id","hgnc_symbol"),values=rownames(NormData), mart=ensembl)
 
-#Isolate Duplicated Probes
-Duplicated<-subset(IDs,duplicated(IDs$affy_hugene_1_0_st_v1)|duplicated(IDs$affy_hugene_1_0_st_v1,fromLast=T)==T)
+Probeset1<-RemoveDupProbes(IDs,exprs(NormData))
+GSE75010<-CondenseProbes(Probeset1)
 
-#Lets check out what these duplicated Probes look like
-DupTable<-as.data.frame(table(Duplicated$affy_hugene_1_0_st_v1))
-hist(DupTable$Freq)
-summary(DupTable$Freq)
-rownames(DupTable)<-as.character(DupTable$Var1)
-
-#Create list of Data that is Duplicated and subset this Data
-Duplications<-rownames(DupTable)
-length(Duplications)
-#Duplications.Data<-NormData[Duplications,]
-
-#Isolate Unique Probes
-UniqueProbes<-outersect(ArrayProbes,Duplications)
-
-Unique<-subset(IDs,duplicated(IDs$affy_hugene_1_0_st_v1)==F)
-rownames(Unique)<-as.character(Unique$affy_hugene_1_0_st_v1)
-dim(Unique)[1]==length(ArrayProbes)
-#Note: this additional step is because the first instance of a non unique probe is sitll there, as sown in the dimensions. we need to remove All those probes that are non unique
-Unique<-(Unique[UniqueProbes,])
-rownames(Unique)<-Unique$affy_hugene_1_0_st_v1
-
-#Create Dataset with these unique probes
-Unique.Data<-merge(Unique,exprs(NormData),by='row.names',all=F)
-Unique.Data<-Unique.Data[,-1]
-
-
-(dim(Unique)[1])+(dim(DupTable)[1])==length(ArrayProbes) #make sure non unique and Unique probes add up to probe ids
-
-TempData<-Unique.Data[,-c(1:3)]
-colnames(TempData)<-SampleID
-CollapsedData<-aggregate(TempData,by=Ensembl_IDs,FUN=mean,na.rm=TRUE, na.action=NULL)
-colnames(CollapsedData)
-rownames(CollapsedData)<-CollapsedData$Group.1
-
-GSE75010<-CollapsedData[,-1]
-
-save(GSE75010,file="GSE75010on1172016.RData")
+save(GSE75010,file="~/Documents/Project 1. Preterm Birth/PaperPreprocessingJan/Preprocessing/GSE75010_12282016.RData")
 ```
 
-
-#GSE25906
-**GSE25906: Illumina H6v2 Array**
-#Part 1: Load raw data files (downloaded from GEO here: )
-This is analogous to Issue 2: Extract Data from studies (Ramasamy et al, 2008)
-```{r}
-#Subset Files you want from Covariate
-X<-"GSE25906B"
-SampleID<-as.character(rownames(subset(Covar2,StudyIdentifier==X)))
-
-
-GSE25906Raw = "~/Documents/Project 1. Preterm Birth/DATAFORGRANTFEB2016/ProcessedData/Part1Processing/GSE25906_non-normalized_BatchB.txt"
-
-RawData = lumiR(GSE25906Raw, inputAnnotation = FALSE)
-RawData <-RawData [ ,SampleID] #Analyzing only samples from this study
-```
-
-#Part 2: Preprocess/Prepare Datasets
-This is analgous to Issue 3: Prepare datasets from different platforms (Ramasamy et al, 2008)
-```{r}
-(colnames(exprs(RawData)))==SampleID
-NormData.1<-lumiN(RawData,method="quantile")
-NormData.2<-lumiT(NormData.1,method='log2')
-
-NormData<-exprs(NormData.2)
-```
-
-#Part 3: Convert Probes to Genes
-This is analogous to issue 4 (Annotate datasets)
-```{r}
-
-probeids=row.names(NormData)
-length(probeids)
-
-ensembl = useMart("ensembl",dataset="hsapiens_gene_ensembl")
-
-IDs<-getBM(filters="illumina_humanwg_6_v2",attributes= c("illumina_humanwg_6_v2","ensembl_gene_id","hgnc_symbol"),values=probeids, mart=ensembl)
-
-
-```
-
-
-#Part 4: Resolve 1 Probe: Many Gene relationships 
-(A part of many: Many relationships, as described in Ramasamy et al, 2008).  We have elected to expand all probes
-```{r}
-
-ArrayProbes<-unique(IDs$illumina_humanwg_6_v2)
-length(probeids)-length(ArrayProbes) #12717 probs were NOT on the aray
-x<-outersect(probeids,ArrayProbes)
-#Isolate Duplicated Probes
-Duplicated<-subset(IDs,duplicated(IDs$illumina_humanwg_6_v2)|duplicated(IDs$illumina_humanwg_6_v2,fromLast=T)==T)
-
-#Lets check out what these duplicated Probes look like
-DupTable<-as.data.frame(table(Duplicated$illumina_humanwg_6_v2))
-hist(DupTable$Freq)
-summary(DupTable$Freq)
-rownames(DupTable)<-as.character(DupTable$Var1)
-
-#Create list of Data that is Duplicated and subset this Data
-Duplications<-rownames(DupTable)
-length(Duplications)
-#Duplications.Data<-NormData[Duplications,]
-
-#Isolate Unique Probes
-UniqueProbes<-outersect(ArrayProbes,Duplications)
-
-Unique<-subset(IDs,duplicated(IDs$illumina_humanwg_6_v2)==F)
-rownames(Unique)<-as.character(Unique$illumina_humanwg_6_v2)
-dim(Unique)[1]==length(ArrayProbes)
-#Note: this additional step is because the first instance of a non unique probe is sitll there, as sown in the dimensions. we need to remove All those probes that are non unique
-Unique<-(Unique[UniqueProbes,])
-rownames(Unique)<-Unique$illumina_humanwg_6_v2
-
-#Create Dataset with these unique probes
-Unique.Data<-merge(Unique,NormData,by='row.names',all=F)
-Unique.Data<-Unique.Data[,-1]
-
-
-(dim(Unique)[1])+(dim(DupTable)[1])==length(ArrayProbes) #make sure non unique and Unique probes add up to probe ids
-
-Ensembl_IDs<-list(as.character(Unique.Data$ensembl_gene_id))
-
-TempData<-Unique.Data[,-c(1:3)]
-colnames(TempData)<-SampleID
-CollapsedData<-aggregate(TempData,by=Ensembl_IDs,FUN=mean,na.rm=TRUE, na.action=NULL)
-colnames(CollapsedData)
-rownames(CollapsedData)<-CollapsedData$Group.1
-
-GSE25906<-CollapsedData[,-1]
-save(GSE25906,file="~/Documents/Project 1. Preterm Birth/November2016DataProcessing/CompleteDatasets/GSE25906on1172016.RData")
-```
-
-#GSE54618
-**GSE54618: Illumina H12V4 Array**
-#Part 1: Load raw data files (downloaded from GEO here: )
-This is analogous to Issue 2: Extract Data from studies (Ramasamy et al, 2008)
-```{r}
-#Subset Files you want from Covariate
-X<-"GSE54618"
-SampleID<-as.character(rownames(subset(Covar2,StudyIdentifier==X)))
-
-
-GSE54618Raw = "~/Documents/Project 1. Preterm Birth/DATAFORGRANTFEB2016/ProcessedData/Part1Processing/GSE54618_nonnormalized.txt"
-
-SampleID<-subset(NoPE,StudyIdentifier==X)
-SampleID<-as.character(SampleID$SampleIdentifier)
-RawData = lumiR(GSE54618Raw, inputAnnotation = FALSE)
-RawData <-RawData [ ,SampleID] #Analyzing only samples from this study
-```
-
-#Part 2: Preprocess/Prepare Datasets
-This is analgous to Issue 3: Prepare datasets from different platforms (Ramasamy et al, 2008)
-```{r}
-(colnames(exprs(RawData)))==SampleID
-NormData.1<-lumiN(RawData,method="quantile")
-NormData.2<-lumiT(NormData.1,method='log2')
-
-par(mfrow=c(1,2))
-title=X
-plot(RawData, what='density',main=c(X,"Raw"))
-plot(NormData.2, what='density',main=c(X,"Normalized"))
-
-par(mfrow=c(1,2))
-boxplot(RawData,main=c(X,"Raw"))
-boxplot(NormData.2,main=c(X,"Normalized"))
-NormData<-exprs(NormData.2)
-```
-
-#Part 3: Convert Probes to Genes
-This is analogous to issue 4 (Annotate datasets)
-```{r}
-
-probeids=row.names(NormData)
-length(probeids)
-
-ensembl = useMart("ensembl",dataset="hsapiens_gene_ensembl")
-
-IDs<-getBM(filters="illumina_humanht_12_v4",attributes= c("illumina_humanht_12_v4","ensembl_gene_id","hgnc_symbol"),values=probeids, mart=ensembl)
-
-IDs2<-getBM(filters="illumina_humanht_12_v4",attributes= c("illumina_humanht_12_v4","hgnc_symbol"),values=probeids, mart=ensembl)
-
-```
-
-
-#Part 4: Resolve 1 Probe: Many Gene relationships 
-(A part of many: Many relationships, as described in Ramasamy et al, 2008).  We have elected to expand all probes
-```{r}
-
-ArrayProbes<-unique(IDs$illumina_humanht_12_v4)
-length(probeids)-length(ArrayProbes) #12717 probs were NOT on the aray
-
-
-Duplicated<-subset(IDs,duplicated(IDs$illumina_humanht_12_v4)|duplicated(IDs$illumina_humanht_12_v4,fromLast=T)==T)
-
-#Lets check out what these duplicated Probes look like
-DupTable<-as.data.frame(table(Duplicated$illumina_humanht_12_v4))
-hist(DupTable$Freq)
-summary(DupTable$Freq)
-rownames(DupTable)<-as.character(DupTable$Var1)
-
-#Create list of Data that is Duplicated and subset this Data
-Duplications<-rownames(DupTable)
-length(Duplications)
-#Duplications.Data<-NormData[Duplications,]
-
-#Isolate Unique Probes
-UniqueProbes<-outersect(ArrayProbes,Duplications)
-
-Unique<-subset(IDs,duplicated(IDs$illumina_humanht_12_v4)==F)
-rownames(Unique)<-as.character(Unique$illumina_humanht_12_v4)
-dim(Unique)[1]==length(ArrayProbes)
-#Note: this additional step is because the first instance of a non unique probe is sitll there, as sown in the dimensions. we need to remove All those probes that are non unique
-Unique<-(Unique[UniqueProbes,])
-rownames(Unique)<-Unique$illumina_humanht_12_v4
-
-#Create Dataset with these unique probes
-Unique.Data<-merge(Unique,NormData,by='row.names',all=F)
-Unique.Data<-Unique.Data[,-1]
-
-
-(dim(Unique)[1])+(dim(DupTable)[1])==length(ArrayProbes) #make sure non unique and Unique probes add up to probe ids
-Ensembl_IDs<-list(as.character(Unique.Data$ensembl_gene_id))
-
-TempData<-Unique.Data[,-c(1:3)]
-colnames(TempData)<-SampleID
-CollapsedData<-aggregate(TempData,by=Ensembl_IDs,FUN=mean,na.rm=TRUE, na.action=NULL)
-colnames(CollapsedData)
-rownames(CollapsedData)<-CollapsedData$Group.1
-
-GSE54618<-CollapsedData[,-1]
-save(GSE54618,file="~/Documents/Project 1. Preterm Birth/November2016DataProcessing/CompleteDatasets/GSE54618on1172016.RData")
-```
-
-
-#GSE73685
-**GSE73685: HuGene-1_0-st (Gene Version)**
-#Part 1: Load raw data files (downloaded from GEO here: )
-This is analogous to Issue 2: Extract Data from studies (Ramasamy et al, 2008)
-```{r}
-#Subset Files you want from Covariate
-X<-"GSE73685"
-SampleID<-as.character(rownames(subset(Covar2,StudyIdentifier==X)))
-
-#Data munging: Getting .CEL messy filenames to The actual filenames
-setwd("~/Documents/Project 1. Preterm Birth/GSE73685/GSE73685_RAW/")
-filenames <- list.celfiles()
-filenames.tmp<-as.data.frame(strsplit(filenames, split="_"))
-filenames.tmp2<-cbind(t(filenames.tmp),filenames)
-rownames(filenames.tmp2)<-filenames.tmp2[,1]
-filenames.tmp2<-filenames.tmp2[SampleID,]
-filenames<-filenames.tmp2[,6]
-
-rawData <- read.celfiles(filenames)
-```
-
-#Part 2: Preprocess/Prepare Datasets
-This is analgous to Issue 3: Prepare datasets from different platforms (Ramasamy et al, 2008)
-```{r}
-NormData <- oligo::rma(rawData)#Note: Th
-
-
-par(mfrow=c(1,2))
-boxplot(rawData,which="all",main=c(X,"Raw"))
-boxplot(NormData,which="all",main=c(X,"after"))
-
-par(mfrow=c(1,2))
-hist(rawData,main=c(X,"Raw"))
-hist(NormData,main=c(X,"after"))
-
-NormData<-exprs(NormData)
-colnames(NormData)<-SampleID
-
-
-probeids=row.names(NormData)
-length(probeids)
-
-ensembl = useMart("ensembl",dataset="hsapiens_gene_ensembl")
-
-IDs<-getBM(filters="affy_hugene_1_0_st_v1",attributes= c("affy_hugene_1_0_st_v1","ensembl_gene_id","hgnc_symbol"),values=probeids, mart=ensembl)
-
-
-```
-
-
-#Part 4: Resolve 1 Probe: Many Gene relationships 
-(A part of many: Many relationships, as described in Ramasamy et al, 2008).  We have elected to expand all probes
-```{r}
-
-ArrayProbes<-unique(IDs$affy_hugene_1_0_st_v1)
-length(probeids)-length(ArrayProbes) #12717 probs were NOT on the aray
-
-#Isolate Duplicated Probes
-Duplicated<-subset(IDs,duplicated(IDs$affy_hugene_1_0_st_v1)|duplicated(IDs$affy_hugene_1_0_st_v1,fromLast=T)==T)
-
-#Lets check out what these duplicated Probes look like
-DupTable<-as.data.frame(table(Duplicated$affy_hugene_1_0_st_v1))
-hist(DupTable$Freq)
-summary(DupTable$Freq)
-rownames(DupTable)<-as.character(DupTable$Var1)
-
-#Create list of Data that is Duplicated and subset this Data
-Duplications<-rownames(DupTable)
-length(Duplications)
-#Duplications.Data<-NormData[Duplications,]
-
-#Isolate Unique Probes
-UniqueProbes<-outersect(ArrayProbes,Duplications)
-
-Unique<-subset(IDs,duplicated(IDs$affy_hugene_1_0_st_v1)==F)
-rownames(Unique)<-as.character(Unique$affy_hugene_1_0_st_v1)
-dim(Unique)[1]==length(ArrayProbes)
-#Note: this additional step is because the first instance of a non unique probe is sitll there, as sown in the dimensions. we need to remove All those probes that are non unique
-Unique<-(Unique[UniqueProbes,])
-rownames(Unique)<-Unique$affy_hugene_1_0_st_v1
-
-#Create Dataset with these unique probes
-Unique.Data<-merge(Unique,(NormData),by='row.names',all=F)
-Unique.Data<-Unique.Data[,-1]
-
-
-(dim(Unique)[1])+(dim(DupTable)[1])==length(ArrayProbes) #make sure non unique and Unique probes add up to probe ids
-Ensembl_IDs<-list(as.character(Unique.Data$ensembl_gene_id))
-
-TempData<-Unique.Data[,-c(1:3)]
-colnames(TempData)<-SampleID
-CollapsedData<-aggregate(TempData,by=Ensembl_IDs,FUN=mean,na.rm=TRUE, na.action=NULL)
-colnames(CollapsedData)
-rownames(CollapsedData)<-CollapsedData$Group.1
-
-GSE73685<-CollapsedData[,-1]
-
-save(GSE73685,file="GSE73685on1172016.RData")
-```
