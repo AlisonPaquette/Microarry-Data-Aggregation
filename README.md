@@ -1,5 +1,7 @@
 # Objective
 
+This code was used to preprocess data described in Paquette & Brockway et al, Comparative transcriptomic analysis of human placentae at term and preterm delivery, Biology of Reproduction, December 2017 https://doi.org/10.1093/biolre/iox163
+
 The **objective** of the code presented in this repository is to (A) *preprocess* microarray data to reduce disperate probes to genes, then (B) *aggregate* this uniformly microarray data to create a large dataset composed of indivdiual microarray datasets, while adjusting for batch effects using comBat
 
 ###Step 1: Preprocess Microarray Data across Platforms
